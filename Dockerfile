@@ -10,7 +10,7 @@ RUN echo "postfix postfix/main_mailer_type string 'Internet Site'" | debconf-set
 RUN echo "postfix postfix/mailname string localhost" | debconf-set-selections
 RUN echo "postfix postfix/root_address string admin@localhost" | debconf-set-selections
 RUN echo "postfix postfix/mynetworks string 0.0.0.0/0" | debconf-set-selections
-RUN apt-get install -y postfix sasl2-bin procmail mailutils libcrack2 libcrack2-dev
+RUN apt-get install -y postfix sasl2-bin procmail mailutils libcrack2 libcrack2-dev stunnel
 
 ADD postfix /etc/postfix
 
@@ -36,10 +36,15 @@ RUN ln -s /opt/tequila/domains/vm_pop /etc/virtual
 RUN ln -s /var/spool/mail /var/spool/virtual
 
 ADD tequila/tequila.conf /opt/tequila/etc/tequila.conf
+ADD tequila/tequila.crontab /etc/cron.d/tequila.crontab
+
+RUN mkdir /var/lib/stunnel4
+ADD stunnel/stunnel.conf /etc/stunnel/stunnel.conf
+ADD stunnel/stunnel4 /etc/default/stunnel4
 
 RUN chmod -R 0777 /opt/tequila/domains
-RUN chmod -R 0777 /var/spool/mail
 RUN chmod -R 0777 /var/spool/postfix/etc/sasldb2
+RUN chmod -R 0777 /var/spool/virtual
 
 ADD entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
@@ -47,8 +52,7 @@ ENTRYPOINT ["/entrypoint.sh"]
 
 EXPOSE 25 465 110 995 8443
 
-# @todo add crontab: 0 0 * * * /opt/tequila/bin/cronjob_vacation
-# @todo pop3 ssl support
-# @todo permissions
+# @todo fix all permissions
 # @todo test receiving mail to smtp server from web
 # @todo Readme: access @ https://[ip]:8443, user: admin, pass: admin
+# @todo SMTP 25, SMTP SSL 465, POP3 100, POP3 SSL 995

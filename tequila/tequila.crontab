@@ -1,0 +1,1 @@
+0 0 * * * /opt/tequila/bin/cronjob_vacation

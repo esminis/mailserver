@@ -1,7 +1,7 @@
 # tequila options
 # this one will be concatenated to local mail user names 
 myhostname = localhost
-myorigin = mail.localhost
+myorigin = localhost
 
 # The mydestination parameter specifies the list of domains that this
 # machine considers itself the final destination for.
