@@ -38,7 +38,6 @@ RUN ln -s /var/spool/mail /var/spool/virtual
 ADD tequila/tequila.conf /opt/tequila/etc/tequila.conf
 ADD tequila/tequila.crontab /etc/cron.d/tequila.crontab
 
-RUN mkdir /var/lib/stunnel4
 ADD stunnel/stunnel.conf /etc/stunnel/stunnel.conf
 ADD stunnel/stunnel4 /etc/default/stunnel4
 
