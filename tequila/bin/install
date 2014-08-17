@@ -1,0 +1,1119 @@
+#!/usr/bin/perl
+
+require 5.005;
+
+use Cwd;
+use DB_File;
+use FindBin;
+use POSIX qw/ uname /;
+use File::Find;
+use File::Copy;
+use Sys::Hostname;
+use CPAN;
+
+@base = split '/', $FindBin::Bin; 
+pop @base if $base[-1] eq 'bin';
+$INC_base_dir = join '/', @base;
+
+### double test base dir (paranoia?!?! ;-))
+die "Wrong or non-detectable base directory! ($INC_base_dir)" 
+    if not -f "$INC_base_dir/bin/install";
+
+$cwd = cwd();
+chdir "$INC_base_dir/bin";
+
+### we need root permissions
+if($< != 0) {
+    print "$0: Sorry, you must be 'root' to install Tequila!\n";
+    exit 1;
+    }
+
+require "$INC_base_dir/etc/tequila.conf";
+require "$INC_base_dir/etc/postfix.conf";
+
+#{ $INC_mailserver_interface = 
+#    get_choice("What kind of mailserver interface are you going to run?\n".
+#           "Please choose the appropriate number from the list below:\n\n".
+#           "    0 => NONE\n".
+#           "    1 => VM-POP3D\n".
+#           "    2 => CYRUS-IMAP\n".
+#           "    3 => CYRUS-LDAP\n".
+#           "    4 => COURIER-IMAP-LDAP\n", '');
+          #"    5 => COURIER-IMAP-MYSQL\n", '');
+#    last if $INC_mailserver_interface =~ /^[0-4]$/;
+#    print "\n$INC_mailserver_interface is not a valid value! ".
+#          "Please repeat....\n";
+#    } continue { redo }
+
+$INC_mailserver_interface = 1;
+
+$INC_mailserver_interface = 
+    $INC_mailserver_interface == 0 ? 'NONE' :
+    $INC_mailserver_interface == 1 ? 'VM-POP3D' :
+    $INC_mailserver_interface == 2 ? 'CYRUS-IMAP' :
+    $INC_mailserver_interface == 3 ? 'CYRUS-LDAP' :
+    $INC_mailserver_interface == 4 ? 'COURIER-IMAP-LDAP' :
+                                     'COURIER-IMAP-MYSQL';
+
+print "OK, got it. Mailserver interface: $INC_mailserver_interface\n";
+
+probe_modules();
+install_modules();
+
+require "$INC_base_dir/bin/include/variables";
+require "$INC_base_dir/bin/include/functions";
+
+### include mailserver dependant config files
+###
+$INC_mailserver_interface eq 'VM-POP3D' ?
+    require "$INC_base_dir/etc/vm_pop.conf" :
+$INC_mailserver_interface eq 'CYRUS-IMAP' ?
+    require "$INC_base_dir/etc/cyrus_imap.conf" :
+$INC_mailserver_interface eq 'CYRUS-LDAP' ?
+    require "$INC_base_dir/etc/cyrus_ldap.conf" :
+$INC_mailserver_interface eq 'COURIER-IMAP-MYSQL' ?
+    require "$INC_base_dir/etc/courier_mysql.conf" :
+$INC_mailserver_interface eq 'COURIER-IMAP-LDAP' ?
+    require "$INC_base_dir/etc/courier_ldap.conf" :
+$INC_mailserver_interface ne 'NONE' ? 
+    die "Interface type $INC_mailserver_interface unknown; file n/a!\n" : 0;
+
+print "\n";
+
+print "\n=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=";
+print "\nFirst, I need to get some information about your preferences:";
+print "\n=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=\n";
+
+#$install_dir =
+#    get_choice("Install into which directory path?", '/opt/tequila');
+$install_dir = '/opt/tequila';
+
+###
+### assuming new installation (no user 'tequila', non-existing target dir)
+###
+if(not -d "$install_dir/bin/tequila") {
+    install();
+    }
+###
+### assuming update 1.xx => 2.xx (user 'tequila' exists, no target dir)
+###
+#elsif(getpwnam($INC_effective_user) and not -d $install_dir) {
+#    install();
+#    migrate_tequila1();
+#    }
+###
+### assuming update (target dir already exists)
+###
+else {
+    print "\n=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-";
+    print "\n$install_dir already exists! For updates, please run 'update'.";
+    print "\n=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-\n";
+    exit 2;
+    }
+
+###
+### over and out!
+###
+
+print "\nInstallation complete!\n";
+
+print "\nHalleluja! Now start Tequila ('$init_dir/tequila start'),\n".
+      "and point your browser to 'http://$INC_host:$INC_http_port'.\n\n".
+      "And, naturally, have a look at the docs in '$install_dir/docs',\n".
+      "resp. the online documentation, which can be found in the navigation\n".
+      "menu after logging in at 'http://$INC_host:$INC_http_port'.\n";
+
+chdir $cwd;
+exit;
+
+
+#############
+sub install {
+#############
+
+    questionnaire();
+
+    print "\n=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=";
+    print "\nStarting Tequila installation....";
+    print "\n=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=\n";
+
+    mkdir $install_dir, 0755 if not -d $install_dir;
+
+    print "\nCreating user '$INC_effective_user' and ".
+                       "group '$INC_effective_group'.... ";
+    system("groupadd $INC_effective_group 2>/dev/null");
+    system("useradd -g $INC_effective_group ".
+                   "-d $install_dir $INC_effective_user 2>/dev/null");
+
+    # add group wchich can write to sasldb2 file
+    print "Adding group saslauth ...\n";
+    system("groupadd saslauth 2>/dev/null");
+    ### some systems (redhat) have group write pers to group 'mail'
+    ### on /var/spoo/mail; I simply try to add user tequila to this group
+    system("usermod -a -G mail tequila 2>/dev/null");
+    ### allow postfix to write into tequila's dirs
+    system("usermod -a -G tequila postfix");
+    ### access to sasldb2 file
+    system("usermod -a -G saslauth tequila");
+    system("usermod -a -G saslauth apache");
+    system("usermod -a -G saslauth postfix");
+
+    print "Please set permissions of Your sasldb2 file to 660 and set group to \"saslauth\" !\n";
+
+    print "Done!\n";
+
+    files_install();
+
+    ### create ssl certificate (but don't ruin always my devel environment)
+    if ($INC_host !~ /holgilein/) {
+        print "\nCreating SSL Certificate and RSA key.... ";
+        $ENV{'TQADMIN_ADDRESS'} = $INC_addr_postmaster;
+        $ENV{'TQHOSTNAME'} = $INC_host;
+        system("set TQADMIN_ADDRESS=$INC_addr_postmaster; ".
+               "export TQADMIN_ADDRESS; ".
+               "set TQHOSTNAME=$INC_host; ".
+               "export TQHOSTNAME; ".
+               "$install_dir/bin/makecert $install_dir/etc 2>/dev/null");
+        print "Done!\n";
+        }
+
+    ### setting default delivery rules (will be overwritten by COURIER-LDAP)
+    create_basic_database();
+
+    vmpop_install() 
+        if $INC_mailserver_interface eq 'VM-POP3D';
+    cyrus_imap_install() 
+        if $INC_mailserver_interface eq 'CYRUS-IMAP';
+    cyrus_ldap_install() 
+        if $INC_mailserver_interface eq 'CYRUS-LDAP';
+    courier_mysql_install() 
+        if $INC_mailserver_interface eq 'COURIER-IMAP-MYSQL';
+    courier_ldap_install() 
+        if $INC_mailserver_interface eq 'COURIER-IMAP-LDAP';
+
+    ### 
+    ### change tequila.conf and write it back to disk
+    ###
+    tequila_conf_install();
+
+    ###
+    ### modifying login.html (hostname string)
+    ###
+    login_html_install();
+
+    ### 
+    ### change bin/include/vacation file and write it back to disk
+    ###
+    vacation_install();
+
+    ### 
+    ### change bin/detachmail file and write it back to disk
+    ###
+    detachmail_install();
+
+    ###
+    ### hooking tequila into the system's init procedure
+    ###
+    runlevel_install();
+
+    ### setting up the sasl database
+    ###
+    $saslpasswd2 = (-x "/usr/sbin/saslpasswd2") ?
+                       "/usr/sbin/saslpasswd2"  :
+                   (-x "/usr/local/sbin/saslpasswd2") ?
+                       "/usr/local/sbin/saslpasswd2"  :
+                    die "Cannot find saslpasswd2. Please fix me here!\n";
+
+    system("echo 'x' | $saslpasswd2 -p -c admin -f $INC_sasl_password_db")
+        if not -f $INC_sasl_password_db;
+    ### user "cyrus" must be in group "tequila" to read the db
+    system("chown tequila:tequila $INC_sasl_password_db");
+    system("chmod 640 $INC_sasl_password_db");
+    }
+
+
+###################
+sub questionnaire {
+###################
+
+    ($INC_host, $dummy) = gethostbyname(Sys::Hostname::hostname());
+
+    #$INC_host = get_choice("Hostname or IP for the Tequila server?\n".
+    #                       "(Make sure any hostname is resolved by DNS)",
+    #                       $INC_host);
+    print "OK, got it. Hostname or IP: $INC_host\n";
+
+    $INC_http_port = '';#get_choice("Port number for the HTTP-to-HTTPS redirector?", $INC_http_port);
+    print "OK, got it. Port HTTP: $INC_http_port\n";
+
+    $INC_https_port = '';#get_choice("Port number for secure HTTPS communication?", $INC_https_port);
+    print "OK, got it. Port HTTPS: $INC_https_port\n";
+
+    $INC_log_file = '';#get_choice("Name of Tequila's logfile?", $INC_log_file);
+    print "OK, got it. Tequila logfile: $INC_log_file\n";
+
+    $INC_mail_log = '';#get_choice("Name of Postfix' logfile?", $INC_mail_log);
+    print "OK, got it. Postfix logfile: $INC_mail_log\n";
+ 
+#   {$INC_addr_postmaster =
+#   get_choice("Tequila's Admin email address? (=> Goes into SSL cert! <=)", 
+#               $INC_addr_postmaster);
+#   print "OK, got it. Admin's email address: $INC_addr_postmaster\n";
+#   last if $INC_addr_postmaster =~ /^$INC_regex_email_address$/;
+#   print "\n$INC_addr_postmaster is not a valid email address! ".
+#         "Please repeat....\n";
+#   } continue { redo }
+
+#   $INC_rg_init = 
+#   get_choice("How to initialize the random generator: (mostly satisfying)",
+#              $INC_rg_init);
+    print "OK, got it. Initializer: $INC_rg_init\n";
+
+    ###
+    ### asking vm-pop questions, if required....
+    ###
+    if($INC_mailserver_interface eq 'VM-POP3D') {
+
+        #$POFIX_spool_dir = 
+        #get_choice("Postfix spool directory to deliver mail to?", 
+        #           $POFIX_spool_dir);
+        #print "OK, got it. POP3 directory: $POFIX_spool_dir\n";
+        }
+
+    ###
+    ### asking cyrus questions, if required....
+    ###
+    if($INC_mailserver_interface eq 'CYRUS-IMAP') {
+
+        $INC_sasl_password_db =~ s#^/opt/tequila#$install_dir#;
+
+        $INC_sasl_password_db = 
+        get_choice("Path and name of your SASL database?",
+                   $INC_sasl_password_db);
+        print "OK, got it. SASL db: $INC_sasl_password_db\n";
+        }
+
+    ###
+    ### asking courier-imap-ldap questions....
+    ###
+    if($INC_mailserver_interface eq 'COURIER-IMAP-LDAP') {
+
+        $COLDAP_maildir_base = 
+        get_choice("Maildir-style IMAP base directory for mail delivery?", 
+                   $COLDAP_maildir_base);
+        print "OK, got it. IMAP base directory: $COLDAP_maildir_base\n";
+
+        $COLDAP_maildir_make = 
+        get_choice("Path to the 'maildirmake' command?", 
+                   $COLDAP_maildir_make);
+        print "OK, got it. path to 'maildirmake': $COLDAP_maildir_make\n";
+
+        $INC_sasl_password_db =~ s#^/opt/tequila#$install_dir#;
+
+        $INC_sasl_password_db = 
+        get_choice("Path and name of your SASL database? (Optional)",
+                   $INC_sasl_password_db);
+        print "OK, got it. SASL db: $INC_sasl_password_db\n";
+        }
+
+    ###
+    ### asking courier-imap-mysql questions....
+    ###
+    if($INC_mailserver_interface eq 'COURIER-IMAP-MYSQL') {
+        }
+
+    print "\n";
+
+    ###
+    ### asking security questions....
+    ###
+
+    $INC_store_plain_passwords = 0;
+#    { $INC_store_plain_passwords = 
+#	get_choice("Do You want to store unencrypted passwords in database?\n".
+#           "Please choose the appropriate number from the list below:\n\n".
+#           "    0 => NO\n".
+#           "    1 => YES\n",'0');
+#    last if $INC_store_plain_passwords =~ /^[0-1]$/;
+#    print "\n$INC_store_plain_passwords is not a valid value! ".
+#          "Please repeat....\n";
+#    } continue { redo }
+
+    $INC_store_plain_passwords =
+	$INC_store_plain_passwords == 0 ? 0 : 1;
+
+    print "OK, got it. Unecrypted passwords will " .  ($INC_store_plain_passwords ? '' : 'NOT ') . "be stored in database.\n";
+
+    $INC_use_cracklib = 0;
+#   { $INC_use_cracklib = 
+#	get_choice("Do You want to check password strength?\n".
+#           "Please choose the appropriate number from the list below:\n\n".
+#           "    0 => NO\n".
+#           "    1 => YES\n",'1');
+#    last if $INC_use_cracklib =~ /^[0-1]$/;
+#    print "\n$INC_use_cracklib is not a valid value! ".
+#          "Please repeat....\n";
+#    } continue { redo }
+
+    $INC_use_cracklib =
+	$INC_use_cracklib == 0 ? 0 : 1;
+
+    print "OK, got it. Strength of passwords will " .  ($INC_use_cracklib ? '' : 'NOT ') . "be checked.\n";
+
+    $INC_encrypt_method = 1;
+#    { $INC_encrypt_method = 
+#	get_choice("Which algorithm of password encryption do You want to use?\n".
+#           "Please choose the appropriate number from the list below:\n\n".
+#           "    0 => SSHA\n".
+#           "    1 => CRYPT\n",'0');
+#    last if $INC_encrypt_method =~ /^[0-1]$/;
+#    print "\n$INC_encrypt_method is not a valid value! ".
+#         "Please repeat....\n";
+#    } continue { redo }
+
+    $INC_encrypt_method =
+	$INC_encrypt_method == 0 ? 'ssha' : 'crypt';
+
+    print "OK, got it. Passwords will be encrypted using $INC_encrypt_method algorithm.\n";
+
+    print "\n=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=";
+    print "\nSome questions about hooking Tequila into your system....";
+    print "\n=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=\n";
+
+#    {   $init_dir = 
+#            get_choice("Where are your system's init scripts?", '/etc/init.d');
+#        last if -d $init_dir;
+#        print "Directory '$init_dir' does not exist! Please repeat....\n";
+#        } continue { redo }
+#    print "OK, got it. Init directory: $init_dir\n";
+    $init_dir = '/etc/init.d';
+    ### position of runlevel directories may very
+    ###
+    $rc_dir = (-d "$init_dir/rc0.d") ? $init_dir :
+              (-d "/etc/rc0.d")      ? '/etc'    : '';
+    
+    if(not $rc_dir) {
+        {   $rc_dir = 
+            get_choice("Where are your system's runlevel dirs? ('rc0.d/')", '');
+            last if -d $rc_dir;
+            print "Directory '$rc_dir' does not exist! Please repeat....\n";
+            } continue { redo }
+        print "OK, got it. Init directory: $rc_dir\n";
+        }
+        
+    $runlevel = '3,5';#get_choice("Run Tequila service in which runlevels?", '3,5');
+    print "OK, got it. Active runlevels: $runlevel\n";
+
+    print "\n";
+    }
+
+###########################
+sub create_basic_database {
+###########################
+
+    tie(%DB, 'DB_File', "$install_dir/etc/shared.db", O_RDWR|O_CREAT|O_TRUNC, 
+        0600, $DB_HASH) or die "Cannot tie $install_dir/etc/shared.db!";
+
+    undef %DB;
+
+    $DB{'pw_plain'} = 'x';
+    $DB{'pw_crypt'} = PWD_encrypt('x');
+
+    $DB{'language'}  = 'English';
+    $DB{'languages'} = "Deutsch:de_DE\000".
+                       "Polski:pl_PL\000".
+                       "Taiwanese (Traditional Chinese):tw_TW\000".
+                       "English:default\000";
+
+    $DB{'delivery_rules'} = 
+        'Vacation+Forward:|$INC_base_dir/bin/vacation $domain' . "\000".
+        'POP3:$VMPOP_spool_dir/$domain/$user' . "\000".
+        'Cyrus:${domain}!${user}' ."\000".
+        'Detachmail:|$INC_base_dir/bin/detachmail $domain' . "\000";
+
+    $DB{'admin_mail_address'} = $INC_addr_postmaster;
+
+    $DB{'date_changed'} = time();
+
+    untie %DB;
+
+    system("chown $INC_effective_user:$INC_effective_group ".
+           "$install_dir/etc/shared.db");
+    system("chmod 600 $install_dir/etc/shared.db");
+    }
+
+
+###################
+sub vmpop_install {
+###################
+
+    print "\nCreating symlinks for 'vm-pop3d'.... ";
+
+    ### re-link /etc/virtual (for vm-pop3d) to the new domain dir
+    -e "/etc/virtual" and -l "/etc/virtual" ?
+        unlink "/etc/virtual" :
+        print "\nWARNING: /etc/virtual IS NOT A SYMLINK!\n";
+
+    symlink "$install_dir/domains/vm_pop", "/etc/virtual";
+
+    ### re-link /var/spool/virtual (for vm-pop3d) to the new spool dir
+    -e "/var/spool/virtual" and -l "/var/spool/virtual" ?
+        unlink "/var/spool/virtual" :
+        print "\nWARNING: /var/spool/virtual IS NOT A SYMLINK!\n";
+
+    symlink "$POFIX_spool_dir", "/var/spool/virtual";
+
+    print "Done!\n";
+
+    ### 
+    ### change vm_pop.conf and write it back to disk
+    ###
+
+    print "\nModifying config file '$install_dir/etc/vm_pop.conf'.... ";
+
+    local $/;
+    open CONF, "< $install_dir/etc/vm_pop.conf";
+    $conf = <CONF>;
+    close CONF;
+
+    $newval = "\$POFIX_spool_dir = '$POFIX_spool_dir';";
+    $conf =~ s/(\$POFIX_spool_dir\s*=\s*.*?);/$newval/gs;
+
+    open CONF, "> $install_dir/etc/vm_pop.conf";
+    print CONF $conf;
+    close CONF;
+
+    print "Done!\n";
+    }
+
+
+########################
+sub cyrus_imap_install {
+########################
+
+    ### 
+    ### change vm_pop.conf and write it back to disk
+    ###
+
+    print "\nModifying config file '$install_dir/etc/cyrus_imap.conf'.... ";
+
+    local $/;
+    open CONF, "< $install_dir/etc/cyrus_imap.conf";
+    $conf = <CONF>;
+    close CONF;
+
+    $newval = "\$INC_sasl_password_db = '$INC_sasl_password_db';";
+    $conf =~ s/(\$INC_sasl_password_db\s*=\s*.*?);/$newval/gs;
+
+    open CONF, "> $install_dir/etc/cyrus_imap.conf";
+    print CONF $conf;
+    close CONF;
+
+    print "Done!\n";
+
+    ### let the cyrus user access the sasl2 database
+    system("usermod -a -G saslauth cyrus");
+    }
+
+
+########################
+sub cyrus_ldap_install {
+########################
+
+    ### 
+    ### change vm_pop.conf and write it back to disk
+    ###
+
+    print "\nModifying config file '$install_dir/etc/cyrus_ldap.conf'.... ";
+
+    local $/;
+    open CONF, "< $install_dir/etc/cyrus_ldap.conf";
+    $conf = <CONF>;
+    close CONF;
+
+    $newval = "\$INC_sasl_password_db = '$INC_sasl_password_db';";
+    $conf =~ s/(\$INC_sasl_password_db\s*=\s*.*?);/$newval/gs;
+
+    open CONF, "> $install_dir/etc/cyrus_ldap.conf";
+    print CONF $conf;
+    close CONF;
+
+    print "Done!\n";
+
+    ### let the cyrus user access the sasl2 database
+    system("usermod -a -G saslauth cyrus");
+    }
+
+
+###########################
+sub courier_mysql_install {
+###########################
+
+    ### 
+    ### change courier_mysql.conf and write it back to disk
+    ###
+
+    print "\nModifying config file '$install_dir/etc/courier_mysql.conf'.... ";
+
+    local $/;
+    open CONF, "< $install_dir/etc/courier_mysql.conf";
+    $conf = <CONF>;
+    close CONF;
+
+    #$newval = "\$INC_sasl_password_db = '$INC_sasl_password_db';";
+    #$conf =~ s/(\$INC_sasl_password_db\s*=\s*.*?);/$newval/gs;
+
+    open CONF, "> $install_dir/etc/courier_mysql.conf";
+    print CONF $conf;
+    close CONF;
+
+    print "Done!\n";
+    }
+
+
+##########################
+sub courier_ldap_install {
+##########################
+
+    ### 
+    ### change courier_mysql.conf and write it back to disk
+    ###
+
+    print "\nModifying config file '$install_dir/etc/courier_ldap.conf'.... ";
+
+    local $/;
+    open CONF, "< $install_dir/etc/courier_ldap.conf";
+    $conf = <CONF>;
+    close CONF;
+
+    $newval = "\$COLDAP_maildir_make = '$COLDAP_maildir_make';";
+    $conf =~ s/(\$COLDAP_maildir_make\s*=\s*.*?);/$newval/gs;
+
+    $newval = "\$COLDAP_maildir_base = '$COLDAP_maildir_base';";
+    $conf =~ s/(\$COLDAP_maildir_base\s*=\s*.*?);/$newval/gs;
+
+    open CONF, "> $install_dir/etc/courier_ldap.conf";
+    print CONF $conf;
+    close CONF;
+
+    print "Done!\n";
+    
+    print "\nChecking Courier-LDAP mail spool directory.... ";
+
+    if(not -d $COLDAP_maildir_base) {
+        print "CREATING NEW SPOOL DIR.... ";
+        system("mkdir -p $COLDAP_maildir_base");
+        system("chown tequila:tequila $COLDAP_maildir_base");
+        system("chmod 770 $COLDAP_maildir_base");
+        }
+    else { 
+        print "MODIFYING GROUP PERMS.... ";
+        my $gid = (stat("$COLDAP_maildir_base"))[5];
+        system("usermod -a -G $gid tequila");
+        system("chmod g+w $COLDAP_maildir_base");
+        }
+
+    print "Done!\n";
+
+    print "\nModifying shared database.... ";
+
+    tie(%DB, 'DB_File', "$install_dir/etc/shared.db", O_RDWR|O_CREAT, 
+        0600, $DB_HASH) or die;
+
+    $DB{'delivery_rules'} = 
+        'vacation:vacation' . "\000".
+        'detachmail:detachmail' . "\000";
+
+    $DB{'date_changed'} = time();
+
+    untie %DB;
+
+    print "Done!\n";
+    }
+
+
+###################
+sub files_install {
+###################
+
+    print "\nStarting Tequila installation to $install_dir.... ";
+
+    system(" cp -pR $INC_base_dir/* $install_dir 2>/dev/null");
+    system("chown -R $INC_effective_user:$INC_effective_group $install_dir");
+    ### first, do the lawn mower....
+    system("chmod -R 644 $install_dir/*");
+    ### then specify the file permissions more precisely....
+    system("chmod 755 $install_dir/*");
+    system("chmod 600 $install_dir/etc/*.pem");
+    system("chmod 755 $install_dir/bin/*");
+    system("chmod 755 $install_dir/bin/languages/*");
+    system("chmod 755 $install_dir/bin/modules/*");
+    system("chmod 755 $install_dir/bin/modules/languages/*");
+    system("chmod 755 $install_dir/bin/modules/neomail/lang");
+    system("chmod 755 $install_dir/bin/modules/neomail/styles");
+    system("chmod 755 $install_dir/bin/modules/neomail/templates");
+    system("chmod 755 $install_dir/bin/modules/neomail/templates/*");
+    system("chmod -R 755 $install_dir/bin/modules/neomail/users");
+    system("chmod 755 $install_dir/bin/tools/*");
+    system("chmod 755 $install_dir/domains/*");
+    #system("chmod 600 $install_dir/domains/*.db");
+    system("chmod 755 $install_dir/domains/vacation");
+    system("chmod 755 $install_dir/domains/postfix");
+    system("chmod 755 $install_dir/domains/vm_pop");
+    #system("chmod 600 $install_dir/domains/vm_pop/*/passwd");
+
+    print "Done!\n";
+    }
+
+
+##########################
+sub tequila_conf_install {
+##########################
+
+    print "\nModifying config file '$install_dir/etc/tequila.conf'.... ";
+
+    local $/;
+    open CONF, "< $install_dir/etc/tequila.conf";
+    $conf = <CONF>;
+    close CONF;
+
+    my $newval = "\$INC_mailserver_interface = '$INC_mailserver_interface';";
+    $conf =~ s/(\$INC_mailserver_interface\s*=\s*.*?);/$newval/gs;
+
+    $newval = "\$INC_sasl_password_db = '$INC_sasl_password_db';";
+    $conf =~ s/(\$INC_sasl_password_db\s*=\s*.*?);/$newval/gs;
+
+    ### replace old password line with new one
+    $newval = "\$INC_host = '$INC_host';";
+    $conf =~ s/(\(?\$INC_host[,=\s].*?);/$newval/gs;
+
+    $newval = "\$INC_http_port = '$INC_http_port';";
+    $conf =~ s/(\$INC_http_port\s*=\s*.*?);/$newval/gs;
+
+    $newval = "\$INC_https_port = '$INC_https_port';";
+    $conf =~ s/(\$INC_https_port\s*=\s*.*?);/$newval/gs;
+
+    $newval = "\$INC_log_file = '$INC_log_file';";
+    $conf =~ s/(\$INC_log_file\s*=\s*.*?);/$newval/gs;
+
+    $newval = "\$INC_mail_log = '$INC_mail_log';";
+    $conf =~ s/(\$INC_mail_log\s*=\s*.*?);/$newval/gs;
+
+    $newval = "\$INC_rg_init = '$INC_rg_init';";
+    $conf =~ s/(\$INC_rg_init\s*=\s*.*?);/$newval/gs;
+
+    $newval = "\$INC_store_plain_passwords = '$INC_store_plain_passwords';";
+    $conf =~ s/(\$INC_store_plain_passwords\s*=\s*.*?);/$newval/gs;
+
+    $newval = "\$INC_use_cracklib = '$INC_use_cracklib';";
+    $conf =~ s/(\$INC_use_cracklib\s*=\s*.*?);/$newval/gs;
+
+    $newval = "\$INC_encrypt_method = '$INC_encrypt_method';";
+    $conf =~ s/(\$INC_encrypt_method\s*=\s*.*?);/$newval/gs;
+
+    open CONF, "> $install_dir/etc/tequila.conf";
+    print CONF $conf;
+    close CONF;
+
+    print "Done!\n";
+    }
+
+
+########################
+sub login_html_install {
+########################
+
+    print "\nModifying login screen '$install_dir/htdocs/login.html'.... ";
+
+    local $/;
+    open HTML, "< $install_dir/htdocs/login.html";
+    my $html = <HTML>;
+    close HTML;
+
+    $html =~ s/Welcome to mail.yourdomain.tld/Welcome to $INC_host/gs;
+
+    open HTML, "> $install_dir/htdocs/login.html";
+    print HTML $html;
+    close HTML;
+
+    print "Done!\n";
+    }
+
+
+######################
+sub vacation_install {
+######################
+
+    print "\nModifying file '$install_dir/bin/include/vacation'.... ";
+
+    local $/;
+    open CONF, "< $install_dir/bin/include/vacation";
+    $conf = <CONF>;
+    close CONF;
+
+    ### replace old password line with new one
+    my $newval = "DOMAINBASE=\"$install_dir/domains\"";
+    $conf =~ s/DOMAINBASE="?.*?"?\012/$newval\012/gs;
+
+    open CONF, "> $install_dir/bin/include/vacation";
+    print CONF $conf;
+    close CONF;
+
+    print "Done!\n";
+    }
+
+
+##########################
+sub detachmail_install {
+##########################
+
+    print "\nModifying file '$install_dir/bin/detachmail'.... ";
+
+    local $/;
+    open CONF, "< $install_dir/bin/detachmail";
+    $conf = <CONF>;
+    close CONF;
+
+    my $newval = "export MM_CHARSET='iso-8859-1'";
+    $conf =~ s/(export MM_CHARSET\s*=\s*.*?)\n/$newval\n/gs;
+
+    open CONF, "> $install_dir/bin/detachmail";
+    print CONF $conf;
+    close CONF;
+
+    print "Done!\n";
+    }
+
+
+######################
+sub runlevel_install {
+######################
+
+    print "\nCreating init script and linking runlevels.... ";
+
+    ### runlevels for mandrake linux
+    $md_rl = join '', split /[,;]?\s*/, $runlevel;
+    $sl_rl = join ' ', split /[,;]?\s*/, $runlevel;
+
+    open INIT, "> $init_dir/tequila" or die "Cannot create init script!";
+
+    print INIT <<".";
+#!/bin/sh
+#
+# for redhat/centos/mandrake:
+#
+# chkconfig: $md_rl 77 7
+# description: Controls Tequila - The mail server admin tool
+#
+# for suse:
+#
+### BEGIN INIT INFO
+# Provides:            tequila
+# Required-Start:      
+# Required-Stop:       
+# Should-Start:        
+# Should-Stop:         
+# Default-Start:       $sl_rl
+# Default-Stop:        0 1 6
+# Description:         Controls Tequila - The mail server admin tool
+### END INIT INFO
+
+[ -x $install_dir/bin/tequila ] || {
+    echo "Tequila not installed or executeable. Quitting!"
+    exit 1;
+    }
+
+case "\$1" in
+    start)
+	echo -n "Starting tequila:                                          "
+    $install_dir/bin/tequila
+	echo -e "done"
+	;;
+    stop)
+	echo -n "Shutting down tequila:                                     "
+	[ -f "$INC_pid_file" ] && kill `cat $INC_pid_file`
+	echo -e "done"
+	;;
+    reload|restart)
+        \$0 stop  &&  sleep 1 && \$0 start
+        ;;
+    status)
+	echo -n "Checking for service tequila: "
+    PID=`cat $INC_pid_file 2>/dev/null`
+	[ ! -z "\$PID" ] && ps \$PID >/dev/null 2>&1 && \\
+         echo "Running, PID: \$PID" || echo "No process"
+    ;;
+    *)
+	echo "Usage: \$0 {start|stop|status|reload|restart}"
+	exit 1
+esac
+.
+
+    close INIT;
+
+    chmod 0755, "$init_dir/tequila";
+
+    ###
+    ### link initscript into runlevels
+    ###
+
+    foreach $runl (split /[,;]?\s*/, $runlevel) {
+        unlink  glob "$rc_dir/rc${runl}.d/S??tequila";
+        symlink "$init_dir/tequila", "$rc_dir/rc${runl}.d/S77tequila";
+        unlink  glob "$rc_dir/rc${runl}.d/K??tequila";
+        symlink "$init_dir/tequila", "$rc_dir/rc${runl}.d/K07tequila";
+        }
+
+    print "Done!\n";
+    }
+
+
+######################
+sub migrate_tequila1 {
+######################
+
+    print "\n";
+
+    print "\n=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=";
+    print "\nUpdate for Tequila 1.xx detected. Would you like to migrate";
+    print "\nyour existing Tequila domains to the new installation? (Y/n):";
+    print "\n=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=\n";
+    
+    if(<STDIN> =~ /^n/i) {
+        print "\nMigration cancelled!\n\n";
+        return;
+        }
+
+    print "Please let me know where your Tequila 1.xx directory is:";
+    
+    $teq1_dir='/export/http/tequila';
+
+    {   $teq1_dir=get_choice("Actual Tequila 1.xx base directory?", $teq1_dir);
+        last if -d $teq1_dir;
+        print "Directory '$teq1_dir' does not exist! Please repeat....\n";
+        } continue { redo }
+    print "OK, got it. Tequila 1.xx dir: $teq1_dir\n";
+    
+    $source = "$teq1_dir/etc/";
+    $destination = "$install_dir/domains/";
+
+    ($uid, $gid) = (getpwnam("tequila"))[2,3];
+
+    print "\nStarting domain migration from $source to $destination....\n";
+
+    find(\&copyall, $source);
+
+    system("cat $destination/passwd | sed s/master/admin/i > ".
+           "$install_dir/etc/passwd 2>/dev/null");
+
+    unlink "$destination/passwd";
+    system "rm -rf $destination/example.org" if -d "$destination/example.org";
+
+    print "\nDone!\n";
+
+    print "\nPLEASE NOTE: The old \*.db files won't work with Tequila 2!";
+    print "\nDue to this, you'll have to go through all of your domains";
+    print "\nafter this migration process, to set the appropriate values";
+    print "\nto your needs again. Sorry for the inconvenience!\n";
+
+    print "\nPLEASE ALSO NOTE: If you have not only updated Tequila, but";
+    print "\nalso changed the mail server, you'll have to create the spool";
+    print "\ndirs for your domains by hand ";
+    print "(e.g. '/var/spool/mail/your_domain.net').\n";
+    }
+
+
+#############
+sub copyall {
+#############
+
+    if(not $destination or not $source) {
+        print "\nCannot copy/migrate your Tequila 1.xx domains:";
+        print "\nSource or destination directory is missing!\n";
+        return;
+        }
+
+    if(not -f "$source/passwd") {
+        print "\nCannot copy/migrate your Tequila 1.xx domains:";
+        print "\nThe source directory seems not to be made by Tequila 1.xx!\n";
+        return;
+        }
+
+    my $leaf = $File::Find::name;
+
+    if($leaf =~ /\.db$/i) {
+        print "    Skipping db file: $leaf\n";
+        return;
+        }
+
+    (my $target = $leaf) =~ s/^$source/$destination/;
+
+    if (-d $leaf and not -d $target) {
+        unlink $target if -e $target;
+        mkdir $target, 0755 or die "Cannot mkdir $target:$!\n"; 
+        chown $uid, $gid, $target;
+        }
+    elsif(-f $leaf) {
+        copy ($leaf,$target) or die "Cannot copy $leaf to $target:$!\n"; 
+        chown $uid, $gid, $target;
+        system("postmap $target") if $target =~ /virtual$/;
+        system("postalias $target") if $target =~ /aliases$/;
+        }
+    } 
+
+
+######################
+BEGIN {
+    my $hint = 0;
+    
+sub get_choice {
+######################
+    my $msg = shift;
+    my $def = shift;
+
+    print "\n$msg\n";
+    print $hint++ ? "ENTER, or change the default [$def]: " : 
+                    "Customize, or ENTER to accept the default [$def]: ";
+
+    local $/ = "\n";
+    my $custom = ($custom = <STDIN>) =~ /\s*(.+)\s*\n$/ ? $1 : $def;
+
+    return $custom;
+    }
+}
+
+
+###################
+sub probe_modules {
+###################
+    
+    print "\nProbing for required software and Perl modules.... ";
+
+    $ENV{'PATH'} = "$ENV{'PATH'}:$PROGPATH:/bin:/usr/bin:/sbin:/usr/sbin";
+
+    push @na_pkg, "formail: Please install the software package 'Procmail'!"
+        if system("which formail >/dev/null 2>&1");
+
+    push @na_pkg, "sendmail: Please install the software package 'Postfix'!"
+        if system("which formail >/dev/null 2>&1");
+
+    push @na_pkg, "mail: Please install the software package 'Mailx'!"
+        if system("which mail >/dev/null 2>&1");
+
+    push @na_pkg, "openssl: Please install OpenSSL and/or make sure your openssl binary is in your PATH!"
+        if system("which openssl >/dev/null 2>&1");
+
+    push @na_pkg, "openssl: Please install the 'OpenSSL' sources/header ".
+                  "files!\n".
+                  "                  ".
+                  "These files are expected to be in the directory\n".
+                  "                  ".
+                  "'/usr/local/ssl/include/openssl', as they normally are\n".
+                  "                  ".
+                  "after a manual OpenSSL installation,\n".
+                  "                  ".
+                  "or in /usr/include/openssl/ssl.h if pre-installed.\n".
+                  "                  ".
+                  "If these files are at a different place, please create\n".
+                  "                  ".
+                  "a symlink (named as mentioned above) to your directory."
+        if  not -f "/usr/local/ssl/include/openssl/ssl.h"
+        and not -f "/usr/include/openssl/ssl.h" ;
+
+    push @na_pkg, "saslpasswd2: Please install SASL v2 and/or make sure your saslpasswd2 binary is in your PATH!"
+        if system("which saslpasswd2 >/dev/null 2>&1");
+
+    if($INC_mailserver_interface =~ /CYRUS-.*/) {
+        eval "use Cyrus::IMAP::Admin";
+        push @na_pkg, "Cyrus::IMAP::Admin Perl module (CYRUS-IMAP not installed?) " if $@;
+        }
+
+    print "done.\n";
+
+    if(@na_pkg) {
+        print "\n=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=";
+        print "\nMISSING REQUIRED SOFTWARE OR PERL MODULE(S)";
+        print "\n=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=\n";
+
+        print "\nFound unsatisfied software dependencies:\n\n";
+        foreach $pkg (sort @na_pkg) {
+            print "    ---> $pkg\n";
+            }
+        print "\n";
+
+        print "Please have a look at the INSTALL file to learn how to\n".
+              "retrieve the missing software from your OS distributor.\n\n".
+              "Installation cancelled.\n";
+        exit 3;
+        }
+    }
+
+#####################
+sub install_modules {
+#####################
+
+    eval "use DB_File";
+    push @na_mod, "DB_File" if $@;
+    eval "use HTTP::Daemon";
+    push @na_mod, "HTTP::Daemon" if $@;
+    eval "use HTTP::Request";
+    push @na_mod, "HTTP::Request" if $@;
+    eval "use HTTP::Date";
+    push @na_mod, "HTTP::Date" if $@;
+    eval "use Net::SSLeay";
+    push @na_mod, "Net::SSLeay" if $@;
+    eval "use IPC::SysV";
+    push @na_mod, "IPC::SysV" if $@;
+    eval "use IPC::Semaphore";
+    push @na_mod, "IPC::Semaphore" if $@;
+    eval "use IO::Scalar";
+    push @na_mod, "IO::Stringy" if $@;
+    eval "use Compress::Zlib";
+    push @na_mod, "Compress::Zlib" if $@;
+    eval "use Date::Calc";
+    push @na_mod, "Date::Calc" if $@;
+    eval "use MIME::Lite";
+    push @na_mod, "MIME::Lite" if $@;
+    eval "use MIME::Base64";
+    push @na_mod, "MIME::Base64" if $@;
+    eval "use MIME::QuotedPrint";
+    push @na_mod, "MIME::QuotedPrint" if $@;
+    eval "use HTML::Template";
+    push @na_mod, "HTML::Template" if $@;
+    eval "use Digest::MD5";
+    push @na_mod, "Digest::MD5" if $@;
+    eval "use Digest::SHA1";
+    push @na_mod, "Digest::SHA1" if $@;
+    eval "use String::Random";
+    push @na_mod, "String::Random" if $@;
+    eval "use Crypt::Cracklib";
+    push @na_mod, "Crypt::Cracklib" if $@;
+
+    if($INC_mailserver_interface =~ /CYRUS-.*/) {
+        eval "use Encode::IMAPUTF7";
+        push @na_mod, "Encode::IMAPUTF7" if $@;
+        }
+    if($INC_mailserver_interface eq 'COURIER-IMAP-LDAP' or
+          $INC_mailserver_interface eq 'CYRUS-LDAP') {
+        eval "use Net::LDAP";
+        push @na_mod, "Net::LDAP" if $@;
+        }
+    elsif($INC_mailserver_interface eq 'COURIER-IMAP-MYSQL') {
+        }
+
+    return unless scalar @na_mod;
+
+    print "\nInstalling missing Perl modules.... \n\n";
+
+    foreach $module (@na_mod) {
+        print "Installing module $module...\n";
+        CPAN::Shell->install( $module );
+        $mod = CPAN::Shell->expand("Module", $module);
+        die( "Installation of module $module failed: $!\n" )
+            unless $mod and $mod->uptodate;
+        }
+
+    print "Done!\n";
+    }
+
+__END__

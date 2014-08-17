@@ -1,0 +1,41 @@
+# tequila options
+# this one will be concatenated to local mail user names 
+myhostname = localhost
+myorigin = mail.localhost
+
+# The mydestination parameter specifies the list of domains that this
+# machine considers itself the final destination for.
+mydestination = $myhostname, localhost.$mydomain, hash:/opt/tequila/domains/postfix/summary_domains
+
+# here are the virtual mail addresses (those with an '@' in them)
+virtual_alias_maps = hash:/opt/tequila/domains/postfix/summary_virtual
+
+# and here are the local addresses to map the virtual ones onto
+# (tequila uses some sort of "pseudo local" addresses to map the virtual
+# ones, i.e. it uses a ~ instead of the @ to "make" them local. this is
+# quite unelegant, but works (read: legacy)
+alias_maps = hash:/opt/tequila/domains/postfix/summary_aliases
+
+# non-tequila options, but they can give you some wonderful stomach pain
+
+biff = no
+smtpd_recipient_restrictions = permit_sasl_authenticated,reject_unauth_destination
+relayhost = 
+
+# specify where to deliver mail (will there got picked up by vm-pop3d)
+mail_spool_directory = /var/spool/mail
+
+# sasl
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_local_domain = $myhostname
+broken_sasl_auth_clients = yes
+smtpd_sasl_security_options = 
+smtp_sasl_password_maps = hash:/etc/sasldb2
+
+# tls
+smtpd_tls_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem
+smtpd_tls_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+smtpd_use_tls=yes
+smtpd_tls_session_cache_database = btree:${data_directory}/smtpd_scache
+smtp_tls_session_cache_database = btree:${data_directory}/smtp_scache
+smtpd_tls_auth_only = yes
