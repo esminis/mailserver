@@ -24,16 +24,19 @@ RUN rm -rf vm-pop3d-1.1.6; rm -rf vm-pop3d-1.1.6.tar.gz
 
 RUN wget http://www.loomsday.co.nz/tequila/tequila-2.2.16.tar.gz; tar xzvf tequila-2.2.16.tar.gz
 ADD tequila/bin/install /tequila-2.2.16/bin/install
-RUN cd /tequila-2.2.16 ; ./install; rm -rf tequila-2.2.16; rm -rf tequila-2.2.16.tar.gz
-
-RUN mkdir /opt/tequila/domains/postfix; mkdir /opt/tequila/domains/vm_pop
+RUN cd /tequila-2.2.16 ; ./install; rm -rf /tequila-2.2.16; rm -rf /tequila-2.2.16.tar.gz
 
 ADD tequila/tequila.conf /opt/tequila/etc/tequila.conf
 ADD tequila/tequila.crontab /etc/cron.d/tequila.crontab
 ADD stunnel/stunnel.conf /etc/stunnel/stunnel.conf
 ADD stunnel/stunnel4 /etc/default/stunnel4
 
-RUN chmod -R 0777 /opt/tequila/domains; chmod -R 0777 /var/spool/postfix/etc/sasldb2; chmod -R 0777 /var/mail
+RUN rm -rf /var/mail; chmod -R 0777 /var/spool/postfix/etc/sasldb2; chmod 0777 /var
+USER tequila
+RUN mkdir /var/mail; chmod -R 0700 /var/mail
+RUN mkdir /opt/tequila/domains/postfix; mkdir /opt/tequila/domains/vm_pop
+USER root
+RUN chmod 0755 /var
 
 ADD entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
