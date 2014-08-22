@@ -1,4 +1,5 @@
 #!/bin/bash
+service supervisor stop
 service rsyslog start
 service postfix start
 vm-pop3d -d --user tequila --group tequila

@@ -2,7 +2,7 @@ FROM ubuntu:14.04
 
 MAINTAINER Tautvydas Andrikys <esminis@esminis.lt>
 
-RUN apt-get update; apt-get install -y debconf-utils openssl libssl-dev rsyslog make gcc wget
+RUN apt-get update; apt-get install -y debconf-utils openssl libssl-dev rsyslog make gcc wget supervisor
 
 # Postfix and sasl2
 RUN echo "postfix postfix/main_mailer_type string 'Internet Site'" | debconf-set-selections
@@ -44,6 +44,6 @@ ENTRYPOINT ["/entrypoint.sh"]
 
 EXPOSE 25 465 110 995 8443
 
+CMD ["supervisord", "-n"]
+
 # @todo test receiving mail to smtp server from web
-# @todo Readme: access @ https://[ip]:8443, user: admin, pass: admin
-# @todo SMTP 25, SMTP SSL 465, POP3 100, POP3 SSL 995
