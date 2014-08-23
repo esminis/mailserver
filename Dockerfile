@@ -27,7 +27,7 @@ RUN cd /Digest-SHA1-2.13 ; perl Makefile.PL; make install; rm -rf /Digest-SHA1-2
 
 RUN wget http://www.loomsday.co.nz/tequila/tequila-2.2.16.tar.gz; tar xzvf tequila-2.2.16.tar.gz
 ADD tequila/bin/install /tequila-2.2.16/bin/install
-RUN cd /tequila-2.2.16 ; chmod 0777 install; ./install; rm -rf /tequila-2.2.16; rm -rf /tequila-2.2.16.tar.gz
+RUN cd /tequila-2.2.16 ; chmod -R 0777 /tequila-2.2.16; ./install; rm -rf /tequila-2.2.16; rm -rf /tequila-2.2.16.tar.gz
 
 ADD tequila/tequila.conf /opt/tequila/etc/tequila.conf
 ADD tequila/tequila.crontab /etc/cron.d/tequila.crontab
@@ -48,5 +48,3 @@ ENTRYPOINT ["/entrypoint.sh"]
 EXPOSE 25 465 110 995 8443
 
 CMD ["supervisord", "-n"]
-
-# @todo test receiving mail to smtp server from web
