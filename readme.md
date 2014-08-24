@@ -1,7 +1,7 @@
 Mail Server by [esminis](http://esminis.com)
 ============================================
 
-This server is made of:
+This is simple docker mail server, it includes:
 
 * [Postfix](http://www.postfix.org/) for SMTP
 * [Virtualmail-pop3d (aka vm-pop3d)](http://www.reedmedia.net/software/virtualmail-pop3d/) for POP3
@@ -35,11 +35,11 @@ Run modes
 Ports
 -----
 
-* 25 - SMTP
-* 110 - POP3
-* 465 - SMTP SSL (uses snakeoil certificate)
-* 995 - POP3 SSL (uses snakeoil certificate)
-* 8443 - Tequila SSL
+* 25 - SMTP, only for receiving email
+* 110 - POP3, use if you want but POP3 SSL is recommended
+* 465 - SMTP SSL, for sending email, uses snakeoil certificate
+* 995 - POP3 SSL, uses snakeoil certificate
+* 8443 - Tequila SSL, web interface to control mail users
 
 Tequila
 -------
