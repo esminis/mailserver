@@ -12,25 +12,25 @@ Quickstart
 
 Of course first download and install [Docker](https://docker.com/), then just run:
 
-    docker pull esminis/mailserver ; docker run esminis/mailserver
+    docker pull esminis/mail-server-postfix-vm-pop3d ; docker run esminis/mail-server-postfix-vm-pop3d
 
 Run modes
 ---------
 * Run 
 
-        docker run esminis/mailserver
+        docker run esminis/mail-server-postfix-vm-pop3d
 
 * Run as daemon
 
-        docker run -d esminis/mailserver
+        docker run -d esminis/mail-server-postfix-vm-pop3d
 
 * Run as daemon exposing ports
 
-        docker run -it -p 8443:8443 -p 25:25 -p 465:465 -p 995:995 esminis/mailserver
+        docker run -it -p 8443:8443 -p 25:25 -p 465:465 -p 995:995 esminis/mail-server-postfix-vm-pop3d
 
 * Run and get into console
 
-        docker run -it esminis/mailserver /bin/bash
+        docker run -it esminis/mail-server-postfix-vm-pop3d /bin/bash
 
 Ports
 -----
