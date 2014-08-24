@@ -1,7 +1,7 @@
 Mail Server by [esminis](http://esminis.com)
 ============================================
 
-This server is made of:  
+This server is made of:
 
 * [Postfix](http://www.postfix.org/) for SMTP
 * [Virtualmail-pop3d (aka vm-pop3d)](http://www.reedmedia.net/software/virtualmail-pop3d/) for POP3
@@ -12,22 +12,22 @@ Quickstart
 
 Of course first download and install [Docker](https://docker.com/), then just run:
 
-    docker run X
+    docker pull esminis/mailserver ; docker run esminis/mailserver
 
 Run modes
 ---------
 * Run 
-        
-        docker run X
+
+        docker run esminis/mailserver
 * Run as daemon
-    
-        docker run -d X
+
+        docker run -d esminis/mailserver
 * Run and get into console
 
-        docker run -it X /bin/bash
+        docker run -it esminis/mailserver /bin/bash
 * Run as daemon exposing ports
 
-        docker run -it -p 8443:8443 -p 25:25 -p 465:465 -p 995:995 X
+        docker run -it -p 8443:8443 -p 25:25 -p 465:465 -p 995:995 esminis/mailserver
 
 Ports
 -----
@@ -45,13 +45,16 @@ Access web administration interface Tequila on [https://[ip]:8443](https://[ip]:
 Administrator user: admin
 Administrator user password: x
 
+Source
+------
+
+You can find source for building with Dockerfile here: https://bitbucket.org/esminis/mailserver
+
 Building
 --------
 
-* Download and extract
-* Go into directory
-
-        cd X
+* Get build source from https://bitbucket.org/esminis/mailserver
+* Go inside directory
 * Build
 
         docker build .
