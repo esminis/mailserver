@@ -12,7 +12,7 @@ Quickstart
 
 Of course first download and install [Docker](https://docker.com/), then just run:
 
-    docker pull esminis/mail-server-postfix-vm-pop3d ; docker run esminis/mail-server-postfix-vm-pop3d
+    docker run esminis/mail-server-postfix-vm-pop3d
 
 Run modes
 ---------
