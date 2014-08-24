@@ -22,16 +22,15 @@ Run modes
 
 * Run as daemon
 
-
         docker run -d esminis/mailserver
-
-* Run and get into console
-
-        docker run -it esminis/mailserver /bin/bash
 
 * Run as daemon exposing ports
 
         docker run -it -p 8443:8443 -p 25:25 -p 465:465 -p 995:995 esminis/mailserver
+
+* Run and get into console
+
+        docker run -it esminis/mailserver /bin/bash
 
 Ports
 -----
