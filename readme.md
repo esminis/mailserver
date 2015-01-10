@@ -26,7 +26,7 @@ Run modes
 
 * Run as daemon exposing ports
 
-        docker run -it -p 8443:8443 -p 25:25 -p 465:465 -p 995:995 esminis/mail-server-postfix-vm-pop3d
+        docker run -d -it -p 8443:8443 -p 25:25 -p 465:465 -p 995:995 esminis/mail-server-postfix-vm-pop3d
 
 * Run and get into console
 
