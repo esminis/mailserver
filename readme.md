@@ -51,12 +51,12 @@ Administrator user password: x
 Source
 ------
 
-You can find source for building with Dockerfile here: [https://bitbucket.org/esminis/mailserver](https://bitbucket.org/esminis/mailserver)
+You can find source for building with Dockerfile here: [https://github.com/esminis/mailserver](https://github.com/esminis/mailserver)
 
 Building
 --------
 
-* Get build source from [https://bitbucket.org/esminis/mailserver](https://bitbucket.org/esminis/mailserver)
+* Get build source from [https://github.com/esminis/mailserver](https://github.com/esminis/mailserver)
 * Go inside directory
 * Build
 
